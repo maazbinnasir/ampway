@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { drawHamm, drawDus } from './sketches.js';
+import { drawHamm, drawDus } from './sketches.js?v=20261122b';
 
 /* ================================================================ setup */
 const $ = (s) => document.querySelector(s);
@@ -754,6 +754,12 @@ function resize() {
   measureCallouts();
 }
 addEventListener('resize', resize);
+// iPhone Safari changes the visible height when its toolbars show or hide: re-fit the shot once it settles
+let refit;
+addEventListener('resize', () => {
+  clearTimeout(refit);
+  refit = setTimeout(() => { if (isMobile() && !busy && !camMoves && FIT[view.shot] && !document.body.classList.contains('intro')) moveCamera(view.shot, 700, ease.out, view.opts); }, 250);
+});
 
 // adaptive resolution: if a device can't hold ~45 fps, render fewer pixels instead of stuttering
 const perf = { on: false, acc: 0, n: 0 };
