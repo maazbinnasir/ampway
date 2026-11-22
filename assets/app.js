@@ -434,19 +434,39 @@ const SHOTS = {
   travel:   { t: [-22, 100, -5], p: [-214, 158, 372] },
   dock:     { t: [6, 84, 0],    p: [150, 122, 262] },
 };
-function shotVectors(name) {
+/* Phone framing: the station has to fit in the free band between the panels at the top
+   (top bar, headline or trip card) and the dock at the bottom, whatever the screen height. */
+const view = { y: 0, shot: 'far', opts: {} };
+const box = (sel) => { const el = typeof sel === 'string' ? $(sel) : sel; return { top: el.offsetTop, bottom: el.offsetTop + el.offsetHeight }; };
+function band(opts = {}) {
+  const h = innerHeight, dock = box('.dock').top - 10;
+  let top = box('.topbar').bottom + 8;
+  if (opts.trip ?? ui.trip.classList.contains('show')) top = Math.max(top, box(ui.trip).bottom + 8);
+  else if (!(opts.heroDim ?? ui.hero.classList.contains('dim'))) top = Math.max(top, box(ui.hero).bottom + 4);
+  top = Math.min(top, h * 0.45);
+  return { top, bottom: Math.max(dock, top + 160), h };
+}
+const FIT = { far: true, overview: true, travel: true }; // shots that must show the whole station
+function shotVectors(name, opts = {}) {
   const s = (isMobile() && SHOTS_MOB[name]) || SHOTS[name]; const t = new THREE.Vector3(...s.t); const p = new THREE.Vector3(...s.p);
   const a = innerWidth / innerHeight;
-  const k = a < 1 ? clamp(0.62 / a + 0.1, 1, 2.05) : a < 1.35 ? 1.12 : 1;
+  let k = a < 1 ? clamp(0.62 / a + 0.1, 1, 2.05) : a < 1.35 ? 1.12 : 1, vy = 0;
+  if (isMobile()) {
+    const b = band(opts), free = b.bottom - b.top;
+    if (FIT[name]) k = Math.max(k, 0.84 * b.h / (free * 0.94));
+    k = Math.min(k, 3);
+    vy = -((b.top + b.bottom) / 2 - b.h / 2); // centre the scene in the free band
+  }
   p.sub(t).multiplyScalar(k).add(t);
-  return { t, p };
+  return { t, p, vy };
 }
 // Camera moves run outside OrbitControls: damping momentum is flushed first and controls.update()
 // is skipped while the move runs, so the two never fight over the camera (the main source of jitter).
 let camMoves = 0;
 function flushControls() { const d = controls.enableDamping; controls.enableDamping = false; controls.update(); controls.enableDamping = d; }
-async function moveCamera(name, ms = 1600, e = ease.inOut) {
-  const { t, p } = shotVectors(name);
+async function moveCamera(name, ms = 1600, e = ease.inOut, opts = {}) {
+  const { t, p, vy } = shotVectors(name, opts);
+  view.shot = name; view.opts = opts; const vy0 = view.y;
   flushControls();
   const t0 = controls.target.clone(), p0 = camera.position.clone();
   // travel on a gentle arc around the station instead of a straight line through it
@@ -460,6 +480,7 @@ async function moveCamera(name, ms = 1600, e = ease.inOut) {
     const a = lerp(a0, a1, k), r = lerp(r0, r1, k);
     camera.position.set(controls.target.x + Math.sin(a) * r, lerp(p0.y, p.y, k), controls.target.z + Math.cos(a) * r);
     camera.lookAt(controls.target);
+    if (vy0 !== vy) { view.y = lerp(vy0, vy, k); applyViewOffset(); }
   }, e);
   if (my === camMoves) { camMoves = 0; flushControls(); controls.enabled = true; }
   return ok;
@@ -467,7 +488,7 @@ async function moveCamera(name, ms = 1600, e = ease.inOut) {
 function applyViewOffset() {
   const w = innerWidth, h = innerHeight;
   if (w >= 820) camera.setViewOffset(w, h, -w * 0.13, h * 0.03, w, h);
-  else camera.setViewOffset(w, h, w * 0.1, h * 0.02, w, h); // station a touch left of centre, room for the station name on the right
+  else camera.setViewOffset(w, h, w * 0.1, view.y, w, h); // station a touch left of centre (room for the station name), centred in the free band
   camera.aspect = w / h; camera.updateProjectionMatrix();
 }
 
@@ -625,7 +646,7 @@ async function stepTake() {
 async function stepTravel() {
   const my = epoch;
   calloutsOn = false; ui.callouts.classList.remove('show');
-  moveCamera('travel', 2000);
+  moveCamera('travel', 2000, ease.inOut, { trip: true });
   const p0 = base.pos.clone(), s0 = hero.scale.x;
   // the power bank keeps floating and spinning while it glides aside
   await tween(1700, (k) => { base.pos.lerpVectors(p0, SIDE_POS, k); hero.scale.setScalar(lerp(s0, 1.9, k)); }, ease.inOut);
@@ -636,7 +657,7 @@ async function stepTravel() {
   let flipped = false, whooshed = false, lastPct = -1, lastMin = -1;
   await tween(6200, (k, raw) => {
     ui.trackFill.style.transform = `scaleX(${raw.toFixed(4)})`;
-    ui.train.style.transform = `translate3d(${(raw * trackW).toFixed(1)}px, -50%, 0) translateX(-50%)`;
+    ui.train.style.transform = `translate3d(${(6 + raw * (trackW - 12)).toFixed(1)}px, -50%, 0) translateX(-50%)`;
     const pct = Math.round(lerp(12, 84, raw));
     if (pct !== lastPct) {
       lastPct = pct; ui.phonePct.textContent = `${pct}%`;
@@ -728,6 +749,7 @@ controls.addEventListener('end', () => { clearTimeout(idleTimer); idleTimer = se
 /* ================================================================ resize + loop */
 function resize() {
   renderer.setSize(innerWidth, innerHeight, false);
+  view.y = isMobile() ? shotVectors(view.shot, view.opts).vy : 0;
   applyViewOffset();
   measureCallouts();
 }
@@ -786,7 +808,7 @@ async function boot() {
   if (renderer.initTexture) [...textures, ...boards.map((b) => b.tex)].forEach((tx) => renderer.initTexture(tx));
   bar.style.width = '80%';
   resize();
-  const far = shotVectors('far'); camera.position.copy(far.p); controls.target.copy(far.t);
+  const far = shotVectors('far', { heroDim: false }); camera.position.copy(far.p); controls.target.copy(far.t); view.y = far.vy; applyViewOffset();
   station.position.y = -10;
   headerMat.color.set(0x000000);
   slots.forEach((s) => (s.led.visible = false));
@@ -800,7 +822,7 @@ async function boot() {
   await new Promise((r) => setTimeout(r, 350));
   $('#loader').classList.add('done');
   // intro: camera glides in, station settles, lights come on
-  moveCamera('overview', 2600, ease.expo);
+  moveCamera('overview', 2600, ease.expo, { heroDim: false });
   tween(1800, (k) => { station.position.y = lerp(-10, 0, k); }, ease.out);
   await wait(900);
   tween(900, (k) => headerMat.color.setScalar(k));

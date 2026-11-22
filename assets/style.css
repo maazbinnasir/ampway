@@ -221,8 +221,23 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; }
   .steps .t { font-size: 12.5px; }
   .caption { font-size: 13.5px; min-height: 2.9em; }
   .dock-actions .btn-primary { flex: 1; justify-content: center; }
-  .trip { top: calc(env(safe-area-inset-top, 0px) + 74px); margin-top: 0; left: 50%; transform: translate(-50%, -10px); }
+  /* compact two-row trip card so it never covers the station */
+  .trip {
+    top: calc(env(safe-area-inset-top, 0px) + 68px); margin-top: 0; left: 50%; transform: translate(-50%, -10px);
+    display: grid; grid-template-columns: auto 1fr; grid-template-areas: "phone head" "phone route"; column-gap: 14px; row-gap: 6px; align-items: center;
+    padding: 10px 14px; border-radius: 16px;
+  }
   .trip.show { transform: translate(-50%, 0); }
+  .trip-head { grid-area: head; font-size: 10px; }
+  .trip-head .mono { font-size: 10px; letter-spacing: .1em; }
+  .trip-head { gap: 10px; white-space: nowrap; }
+  .hide-sm { display: none; }
+  .route { grid-area: route; margin: 0; gap: 8px; }
+  .stop { font-size: 12.5px; }
+  .phone { grid-area: phone; gap: 8px; padding-right: 14px; border-right: 1px solid var(--line); }
+  .phone .muted { display: none; }
+  .phone strong { font-size: 22px; }
+  .phone-icon { width: 18px; height: 31px; border-radius: 5px; }
   .callout { padding: 7px 10px; }
   .callout b { font-size: 12.5px; }
   .callout span { font-size: 11px; }
