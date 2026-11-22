@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { drawHamm, drawDus } from './sketches.js';
 
 /* ================================================================ setup */
 const $ = (s) => document.querySelector(s);
@@ -26,12 +27,14 @@ const MARK_RAILS = new Path2D('M35.95,92.96 L11.17,98.17 L4.00,112.00 L30.00,112
 const MARK_BOLT = new Path2D('M14.00,94.00 L68.00,60.00 L60.00,73.00 L106.00,50.00 L52.00,86.00 L60.00,74.00 Z');
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, isMobile() ? 1.75 : 2));
+let DPR = Math.min(devicePixelRatio, isMobile() ? 1.5 : 1.75);
+renderer.setPixelRatio(DPR);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.02;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.autoClear = false;
 
 const scene = new THREE.Scene();
 const pmrem = new THREE.PMREMGenerator(renderer);
@@ -54,7 +57,7 @@ scene.add(new THREE.HemisphereLight(0xffffff, 0xb9ad98, 0.55));
 const key = new THREE.DirectionalLight(0xfff6ea, 2.1);
 key.position.set(120, 460, 230);
 key.castShadow = true;
-key.shadow.mapSize.set(isMobile() ? 1024 : 2048, isMobile() ? 1024 : 2048);
+key.shadow.mapSize.set(isMobile() ? 1024 : 1536, isMobile() ? 1024 : 1536);
 Object.assign(key.shadow.camera, { left: -220, right: 220, top: 260, bottom: -160, near: 50, far: 1100 });
 key.shadow.bias = -0.0004;
 key.shadow.normalBias = 0.6;
@@ -101,14 +104,14 @@ function roundRect(g, x, y, w, h, r) { g.beginPath(); g.roundRect(x, y, w, h, r)
 
 /* ================================================================ materials */
 const M = {
-  body: new THREE.MeshPhysicalMaterial({ color: 0x2a2b2e, roughness: 0.42, metalness: 0.35, clearcoat: 0.35, clearcoatRoughness: 0.4, envMapIntensity: 0.9 }),
+  body: new THREE.MeshStandardMaterial({ color: 0x2a2b2e, roughness: 0.4, metalness: 0.35, envMapIntensity: 0.9 }),
   face: new THREE.MeshStandardMaterial({ color: 0x18191b, roughness: 0.62, metalness: 0.2, envMapIntensity: 0.7 }),
   plinth: new THREE.MeshStandardMaterial({ color: 0x0f1011, roughness: 0.7, metalness: 0.3 }),
   trim: new THREE.MeshStandardMaterial({ color: 0xbcbab4, roughness: 0.3, metalness: 0.85 }),
   bezel: new THREE.MeshStandardMaterial({ color: 0x0b0b0c, roughness: 0.25, metalness: 0.4 }),
   socket: new THREE.MeshStandardMaterial({ color: 0x070708, roughness: 0.85, metalness: 0.1 }),
   signal: new THREE.MeshStandardMaterial({ color: 0xff4d1a, emissive: 0xff4d1a, emissiveIntensity: 0.9, roughness: 0.4 }),
-  bank: new THREE.MeshPhysicalMaterial({ color: 0xeeebe5, roughness: 0.5, metalness: 0, clearcoat: 0.25, clearcoatRoughness: 0.5 }),
+  bank: new THREE.MeshStandardMaterial({ color: 0xeeebe5, roughness: 0.48, metalness: 0 }),
   cable: new THREE.MeshStandardMaterial({ color: 0x1a1a1c, roughness: 0.55 }),
   plug: new THREE.MeshStandardMaterial({ color: 0xc8c6c0, roughness: 0.3, metalness: 0.9 }),
 };
@@ -140,26 +143,40 @@ const headerFace = add(new THREE.Mesh(new THREE.PlaneGeometry(54, 18), headerMat
 headerFace.position.set(0, BODY_TOP + 11, 0.18);
 
 // station name plate (flips at step 3)
-let stationName = 'HAMM HBF';
-const plateTex = canvasTexture(1200, 180, (g, w, h) => {
-  g.fillStyle = '#0d0d0e'; g.fillRect(0, 0, w, h);
-  g.fillStyle = COLOR.signal; g.fillRect(0, 0, h * 0.09, h);
-  g.fillStyle = COLOR.paper; g.font = `500 ${h * 0.4}px ${FONT.mono}`; g.textBaseline = 'middle'; g.textAlign = 'center';
-  g.letterSpacing = `${h * 0.06}px`; g.fillText(stationName, w / 2, h * 0.54);
-});
+// every texture that changes during the demo is drawn once up front and only swapped later,
+// so nothing is repainted (and re-uploaded to the GPU) in the middle of an animation
+const HAMM = 'HAMM HBF', DUS = 'DÜSSELDORF HBF';
+let stationName = HAMM;
+const plateCache = new Map();
+function plateTexFor(name) {
+  if (!plateCache.has(name)) plateCache.set(name, canvasTexture(1200, 180, (g, w, h) => {
+    g.fillStyle = '#0d0d0e'; g.fillRect(0, 0, w, h);
+    g.fillStyle = COLOR.signal; g.fillRect(0, 0, h * 0.09, h);
+    g.fillStyle = COLOR.paper; g.font = `500 ${h * 0.4}px ${FONT.mono}`; g.textBaseline = 'middle'; g.textAlign = 'center';
+    g.letterSpacing = `${h * 0.06}px`; g.fillText(name, w / 2, h * 0.54);
+  }));
+  return plateCache.get(name);
+}
 const plate = new THREE.Group(); plate.position.set(0, 151.5, 0.3); station.add(plate);
-const plateMats = [M.bezel, M.bezel, M.bezel, M.bezel, new THREE.MeshBasicMaterial({ map: plateTex, toneMapped: false }), M.bezel];
+const plateMat = new THREE.MeshBasicMaterial({ map: plateTexFor(HAMM), toneMapped: false });
+const plateMats = [M.bezel, M.bezel, M.bezel, M.bezel, plateMat, M.bezel];
 add(new THREE.Mesh(new THREE.BoxGeometry(40, 6, 0.6), plateMats), plate);
 
 // screen
 let screenState = 'idle';
 const SCREEN = { w: 48, h: 27 };
-const screenTex = canvasTexture(1536, 864, drawScreen);
+const screenCache = new Map();
+function screenTexFor(st, nm) {
+  const k = `${st}|${nm}`;
+  if (!screenCache.has(k)) screenCache.set(k, canvasTexture(1280, 720, (g, w, h) => drawScreen(g, w, h, st, nm)));
+  return screenCache.get(k);
+}
+const screenTex = screenTexFor('idle', HAMM);
 add(new THREE.Mesh(new RoundedBoxGeometry(52.5, 31.5, 1.8, 3, 1.4), M.bezel)).position.set(0, 128, 0.5);
 const screenMesh = add(new THREE.Mesh(new THREE.PlaneGeometry(SCREEN.w, SCREEN.h), new THREE.MeshBasicMaterial({ map: screenTex, toneMapped: false })), station, { cast: false });
 screenMesh.position.set(0, 128, 1.62);
 
-function drawScreen(g, w, h) {
+function drawScreen(g, w, h, st, nm) {
   const u = h / 100;
   g.fillStyle = '#FBFAF7'; g.fillRect(0, 0, w, h);
   // status bar
@@ -167,44 +184,45 @@ function drawScreen(g, w, h) {
   g.fillStyle = COLOR.ink; g.font = `800 ${6.2 * u}px ${FONT.display}`; g.textBaseline = 'middle'; g.letterSpacing = `${-0.25 * u}px`;
   g.fillText('AmpWay', 15.5 * u, 9.8 * u); g.letterSpacing = '0px';
   g.font = `500 ${3.6 * u}px ${FONT.mono}`; g.fillStyle = COLOR.mute; g.textAlign = 'right';
-  g.fillText(stationName, w - 6 * u, 9.6 * u); g.textAlign = 'left';
+  g.fillText(nm, w - 6 * u, 9.6 * u); g.textAlign = 'left';
   g.fillStyle = 'rgba(18,18,18,.08)'; g.fillRect(5 * u, 19 * u, w - 10 * u, 0.35 * u);
   const L = 7 * u;
   const title = (t, y, size = 15) => { g.fillStyle = COLOR.ink; g.font = `800 ${size * u}px ${FONT.display}`; g.letterSpacing = `${-0.55 * u}px`; g.fillText(t, L, y); g.letterSpacing = '0px'; };
   const sub = (t, y, col = COLOR.mute) => { g.fillStyle = col; g.font = `500 ${5 * u}px ${FONT.text}`; g.fillText(t, L, y); };
-  if (screenState === 'idle' || screenState === 'arrive') {
-    if (screenState === 'idle') { title('Tap to', 40 * u); title('charge', 56 * u); sub('No app. No sign-up.', 71 * u); }
+  if (st === 'idle' || st === 'arrive') {
+    if (st === 'idle') { title('Tap to', 40 * u); title('charge', 56 * u); sub('No app. No sign-up.', 71 * u); }
     else { title('Return', 40 * u); title('here', 56 * u); sub('Slide it into any free slot.', 71 * u); }
     const cx = w - 30 * u, cy = 50 * u;
     g.fillStyle = 'rgba(255,77,26,.1)'; g.beginPath(); g.arc(cx, cy, 19 * u, 0, Math.PI * 2); g.fill();
     contactless(g, cx + 4 * u, cy, 12 * u, COLOR.signal, 2.8 * u);
     g.fillStyle = COLOR.charge; g.beginPath(); g.arc(L + 1.2 * u, 88 * u, 1.3 * u, 0, Math.PI * 2); g.fill();
-    g.fillStyle = COLOR.ink; g.font = `500 ${3.8 * u}px ${FONT.mono}`; g.fillText(screenState === 'idle' ? '23 POWER BANKS READY' : '11 SLOTS FREE', L + 4.5 * u, 88.4 * u);
+    g.fillStyle = COLOR.ink; g.font = `500 ${3.8 * u}px ${FONT.mono}`; g.fillText(st === 'idle' ? '23 POWER BANKS READY' : '11 SLOTS FREE', L + 4.5 * u, 88.4 * u);
   }
-  if (screenState === 'unlocked') {
+  if (st === 'unlocked') {
     sub('Payment approved', 34 * u, COLOR.charge);
     g.fillStyle = COLOR.signal; g.font = `800 ${24 * u}px ${FONT.display}`; g.letterSpacing = `${-1 * u}px`; g.fillText('Slot 12', L - 1 * u, 58 * u); g.letterSpacing = '0px';
     sub('Take your power bank below.', 75 * u, COLOR.ink);
     g.strokeStyle = COLOR.signal; g.lineWidth = 2.6 * u; g.lineCap = 'round'; g.lineJoin = 'round';
     const ax = w - 24 * u; g.beginPath(); g.moveTo(ax, 36 * u); g.lineTo(ax, 70 * u); g.moveTo(ax - 9 * u, 61 * u); g.lineTo(ax, 70 * u); g.lineTo(ax + 9 * u, 61 * u); g.stroke();
   }
-  if (screenState === 'trip') {
+  if (st === 'trip') {
     title('Have a good', 40 * u, 13); title('trip.', 55 * u, 13);
     const y = 76 * u, x0 = L + 1.5 * u, x1 = w - 9 * u;
     g.strokeStyle = COLOR.signal; g.lineWidth = 1.6 * u; g.beginPath(); g.moveTo(x0, y); g.lineTo(x1, y); g.stroke();
     [x0, x1].forEach((x) => { g.fillStyle = '#fff'; g.strokeStyle = COLOR.ink; g.lineWidth = 1.2 * u; g.beginPath(); g.arc(x, y, 2 * u, 0, Math.PI * 2); g.fill(); g.stroke(); });
     g.font = `500 ${3.4 * u}px ${FONT.mono}`; g.fillStyle = COLOR.ink; g.fillText('HAMM', x0 - 1.5 * u, y + 8 * u); g.textAlign = 'right'; g.fillText('ANY AMPWAY STATION', x1 + 2 * u, y + 8 * u); g.textAlign = 'left';
   }
-  if (screenState === 'returned') {
+  if (st === 'returned') {
     const cx = w - 28 * u, cy = 50 * u;
     g.fillStyle = COLOR.charge; g.beginPath(); g.arc(cx, cy, 15 * u, 0, Math.PI * 2); g.fill();
     g.strokeStyle = '#fff'; g.lineWidth = 3 * u; g.lineCap = 'round'; g.lineJoin = 'round';
     g.beginPath(); g.moveTo(cx - 6.5 * u, cy + 0.5 * u); g.lineTo(cx - 1.5 * u, cy + 5.5 * u); g.lineTo(cx + 7 * u, cy - 5 * u); g.stroke();
-    title('Returned.', 46 * u); sub('Rental ended · 52 min', 62 * u, COLOR.ink); sub('Receipt sent to your card.', 72 * u);
+    title('Returned.', 46 * u); sub('Rental ended · 1 h 14 min', 62 * u, COLOR.ink); sub('Receipt sent to your card.', 72 * u);
   }
 }
-function setScreen(s) { screenState = s; paint(screenTex); }
-function setStation(name) { stationName = name; paint(plateTex); paint(screenTex); }
+function setScreen(s) { screenState = s; screenMesh.material.map = screenTexFor(s, stationName); }
+function setStation(name) { stationName = name; plateMat.map = plateTexFor(name); }
+const PREWARM = [['idle', HAMM], ['unlocked', HAMM], ['trip', HAMM], ['arrive', DUS], ['returned', DUS]];
 
 // card reader + tap pad
 add(new THREE.Mesh(new RoundedBoxGeometry(15, 15, 2.6, 3, 1.6), M.bezel)).position.set(0, 104, 0.7);
@@ -318,6 +336,77 @@ const ripples = [0, 1, 2].map(() => {
   r.position.set(0, 104, 2.5); station.add(r); return r;
 });
 
+/* ================================================================ sketched station backdrop
+   Two pencil drawings (Hamm Hbf, Düsseldorf Hbf) on camera-facing boards behind the station.
+   They always sit opposite the camera, so the station stays in front whatever the angle. */
+const BD = { W: 792, H: 330, D: 420, C: new THREE.Vector3(0, 0, -D / 2) };
+// each name board is centred in its drawing; the boards sit a little to the right so the
+// name reads beside the station instead of hiding behind it
+const BOARD_K = () => (isMobile() ? 0.6 : 1);
+const signShift = () => (isMobile() ? 54 : 74) + 0.5 * (420 / 2400) * BD.W * BOARD_K();
+// drawn in its own pass before the station, so it can never cover the model
+const bgScene = new THREE.Scene();
+const backdrop = { alpha: 0 };
+function sketchBoard(draw) {
+  const c = document.createElement('canvas');
+  c.width = isMobile() ? 1680 : 2400; c.height = Math.round(c.width / 2.4);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0, depthWrite: false, depthTest: false, toneMapped: false });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+  mesh.frustumCulled = false; mesh.visible = false; bgScene.add(mesh);
+  return { mesh, tex, c, draw, slide: 0, stretch: 1, alpha: 1, depth: BD.D, w: BD.W, h: BD.H, y: BD.H * 0.43 - 3 };
+}
+const boardHamm = sketchBoard(drawHamm);
+const boardDus = sketchBoard(drawDus);
+boardDus.alpha = 0; boardDus.slide = -1.2;
+// speed lines for the swipe, drawn once and scrolled
+const boardStreak = (() => {
+  const b = sketchBoard((c) => {
+    const g = c.getContext('2d'); const w = c.width, h = c.height; g.clearRect(0, 0, w, h);
+    let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    g.lineCap = 'round';
+    for (let i = 0; i < 120; i++) {
+      const y = h * (0.08 + rnd() * 0.84), len = w * (0.04 + rnd() * 0.22), x = rnd() * w;
+      const orange = i % 17 === 0;
+      g.strokeStyle = orange ? 'rgba(255,77,26,0.75)' : `rgba(59,57,52,${0.12 + rnd() * 0.42})`;
+      g.lineWidth = (orange ? 2.4 : 0.8 + rnd() * 2.2) * (w / 2400);
+      // draw twice so the lines wrap seamlessly when the texture scrolls
+      [0, -w].forEach((o) => { g.beginPath(); g.moveTo(x + o, y); g.lineTo(x + o + len, y + (rnd() - 0.5) * 2); g.stroke(); });
+    }
+  });
+  b.tex.wrapS = THREE.RepeatWrapping; b.alpha = 0; b.depth = BD.D - 120; b.w = BD.W * 1.1; b.h = BD.H * 0.62; b.y = BD.H * 0.36;
+  return b;
+})();
+const boards = [boardHamm, boardDus, boardStreak];
+function drawBoards() { boards.forEach((b) => { b.draw(b.c); b.tex.needsUpdate = true; }); }
+const _dir = new THREE.Vector3();
+function placeBoards() {
+  _dir.set(camera.position.x - BD.C.x, 0, camera.position.z - BD.C.z);
+  if (_dir.lengthSq() < 1e-6) _dir.set(0, 0, 1); _dir.normalize();
+  const rx = _dir.z, rz = -_dir.x, ry = Math.atan2(_dir.x, _dir.z);
+  for (const b of boards) {
+    const o = b.mesh.material.opacity = backdrop.alpha * b.alpha;
+    b.mesh.visible = o > 0.004;
+    if (!b.mesh.visible) continue;
+    const k = b !== boardStreak ? BOARD_K() : 1;
+    const off = b.slide * b.w * k + (b === boardStreak ? 0 : signShift());
+    b.mesh.position.set(BD.C.x - _dir.x * b.depth + rx * off, b.y * k, BD.C.z - _dir.z * b.depth + rz * off);
+    b.mesh.rotation.set(0, ry, 0);
+    b.mesh.scale.set(b.w * b.stretch * k, b.h * k, 1);
+  }
+}
+const smooth = (t) => t * t * (3 - 2 * t);
+// s: 0 -> Hamm in place, 1 -> Düsseldorf in place. Hamm swishes out to the right, Düsseldorf follows in from the left.
+let swapS = 0;
+function setSwap(s) {
+  swapS = s;
+  const a = clamp(s / 0.56, 0, 1), b = clamp((s - 0.44) / 0.56, 0, 1);
+  boardHamm.slide = Math.pow(a, 2.4) * 1.2; boardHamm.stretch = 1 + 0.5 * Math.sin(Math.PI * a); boardHamm.alpha = 1 - smooth(a);
+  boardDus.slide = -1.2 * Math.pow(1 - b, 2.4); boardDus.stretch = 1 + 0.5 * Math.sin(Math.PI * b); boardDus.alpha = smooth(b);
+  boardStreak.alpha = Math.pow(Math.sin(Math.PI * s), 0.8);
+}
+
 /* ================================================================ tween engine */
 let epoch = 0; // bumps on reset to cancel running sequences
 const active = new Set();
@@ -352,18 +441,33 @@ function shotVectors(name) {
   p.sub(t).multiplyScalar(k).add(t);
   return { t, p };
 }
+// Camera moves run outside OrbitControls: damping momentum is flushed first and controls.update()
+// is skipped while the move runs, so the two never fight over the camera (the main source of jitter).
+let camMoves = 0;
+function flushControls() { const d = controls.enableDamping; controls.enableDamping = false; controls.update(); controls.enableDamping = d; }
 async function moveCamera(name, ms = 1600, e = ease.inOut) {
   const { t, p } = shotVectors(name);
+  flushControls();
   const t0 = controls.target.clone(), p0 = camera.position.clone();
-  controls.enabled = false;
-  const ok = await tween(ms, (k) => { controls.target.lerpVectors(t0, t, k); camera.position.lerpVectors(p0, p, k); }, e);
-  controls.enabled = true;
+  // travel on a gentle arc around the station instead of a straight line through it
+  const r0 = Math.hypot(p0.x - t0.x, p0.z - t0.z), r1 = Math.hypot(p.x - t.x, p.z - t.z);
+  const a0 = Math.atan2(p0.x - t0.x, p0.z - t0.z); let a1 = Math.atan2(p.x - t.x, p.z - t.z);
+  if (a1 - a0 > Math.PI) a1 -= Math.PI * 2; if (a0 - a1 > Math.PI) a1 += Math.PI * 2;
+  const my = ++camMoves; controls.enabled = false;
+  const ok = await tween(ms, (k) => {
+    if (my !== camMoves) return;
+    controls.target.lerpVectors(t0, t, k);
+    const a = lerp(a0, a1, k), r = lerp(r0, r1, k);
+    camera.position.set(controls.target.x + Math.sin(a) * r, lerp(p0.y, p.y, k), controls.target.z + Math.cos(a) * r);
+    camera.lookAt(controls.target);
+  }, e);
+  if (my === camMoves) { camMoves = 0; flushControls(); controls.enabled = true; }
   return ok;
 }
 function applyViewOffset() {
   const w = innerWidth, h = innerHeight;
   if (w >= 820) camera.setViewOffset(w, h, -w * 0.13, h * 0.03, w, h);
-  else camera.setViewOffset(w, h, 0, h * 0.02, w, h);
+  else camera.setViewOffset(w, h, w * 0.1, h * 0.02, w, h); // station a touch left of centre, room for the station name on the right
   camera.aspect = w / h; camera.updateProjectionMatrix();
 }
 
@@ -384,6 +488,23 @@ const sfx = {
   release: () => { tone(420, 160, 'triangle', 0.08); },
   click: () => { tone(220, 70, 'square', 0.05); tone(1568, 120, 'sine', 0.1, 60); },
   done: () => { tone(1046, 110); tone(1318, 110, 'sine', 0.12, 110); tone(1568, 180, 'sine', 0.12, 220); },
+  whoosh: () => {
+    if (!soundOn) return;
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      const t = actx.currentTime, dur = 1.25, n = Math.floor(actx.sampleRate * dur);
+      const buf = actx.createBuffer(1, n, actx.sampleRate); const d = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+      const src = actx.createBufferSource(); src.buffer = buf;
+      const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.1;
+      bp.frequency.setValueAtTime(260, t); bp.frequency.exponentialRampToValueAtTime(2400, t + 0.55); bp.frequency.exponentialRampToValueAtTime(500, t + dur);
+      const gn = actx.createGain(); gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(0.16, t + 0.5); gn.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      const pan = actx.createStereoPanner ? actx.createStereoPanner() : null;
+      if (pan) { pan.pan.setValueAtTime(-0.8, t); pan.pan.linearRampToValueAtTime(0.8, t + dur); src.connect(bp).connect(gn).connect(pan).connect(actx.destination); }
+      else src.connect(bp).connect(gn).connect(actx.destination);
+      src.start(t); src.stop(t + dur);
+    } catch (e) { /* audio unavailable */ }
+  },
 };
 $('#soundBtn').addEventListener('click', (e) => {
   soundOn = !soundOn; e.currentTarget.setAttribute('aria-pressed', String(soundOn));
@@ -402,7 +523,7 @@ const COPY = [
   { label: 'Tap your card', cap: 'Hamm Hbf. Your phone is at 12%. Tap your bank card on the orange pad.' },
   { label: 'Take the power bank', cap: 'Payment approved. Slot 12 unlocks and your power bank slides out.' },
   { label: 'Board the train', cap: 'A sodium-ion power bank with its cables built in. It travels with you.' },
-  { label: 'Return it', cap: 'Charging on the RE 1. About 50 minutes later you arrive in Düsseldorf.' },
+  { label: 'Return it', cap: 'Your phone charges on the ride. A little over an hour later you arrive in Düsseldorf.' },
   { label: 'Replay the demo', cap: 'Returned at Düsseldorf Hbf. The rental ends by itself. No app, no sign-up.' },
 ];
 let step = 0, busy = false;
@@ -422,7 +543,8 @@ function toast(msg, ms = 3200) {
 const ANCHORS = [new THREE.Vector3(-3.3, 0.2, 1.5), new THREE.Vector3(3.36, 0, -1), new THREE.Vector3(-0.2, 1.3, 3.4)];
 const OFFSETS_DESK = [[-230, 40], [90, 70], [70, -110]];
 const OFFSETS_MOB = [[-150, 84], [36, 18], [-40, -118]];
-let calloutsOn = false;
+let calloutsOn = false, calloutSize = [];
+function measureCallouts() { calloutSize = ui.calloutEls.map((el) => [el.offsetWidth, el.offsetHeight]); }
 ui.lines.innerHTML = ANCHORS.map(() => '<line/><circle r="3.5"/>').join('');
 const lineEls = [...ui.lines.querySelectorAll('line')], dotEls = [...ui.lines.querySelectorAll('circle')];
 function updateCallouts() {
@@ -431,22 +553,27 @@ function updateCallouts() {
   ANCHORS.forEach((a, i) => {
     const v = a.clone(); hero.localToWorld(v); v.project(camera);
     const x = (v.x * 0.5 + 0.5) * w, y = (-v.y * 0.5 + 0.5) * h;
-    const el = ui.calloutEls[i]; const bw = el.offsetWidth, bh = el.offsetHeight;
+    const el = ui.calloutEls[i]; const [bw, bh] = calloutSize[i] || [180, 48];
     let lx = x + offs[i][0], ly = y + offs[i][1];
     if (offs[i][0] < 0) lx -= bw * 0.2;
     lx = clamp(lx, 12, w - bw - 12); ly = clamp(ly, 70, h - bh - 220);
-    el.style.transform = `translate(${lx}px, ${ly}px)`;
+    el.style.transform = `translate3d(${lx.toFixed(1)}px, ${ly.toFixed(1)}px, 0)`;
     const ex = offs[i][0] < 0 ? lx + bw : lx, ey = ly + bh / 2;
     lineEls[i].setAttribute('x1', x); lineEls[i].setAttribute('y1', y); lineEls[i].setAttribute('x2', ex); lineEls[i].setAttribute('y2', ey);
     dotEls[i].setAttribute('cx', x); dotEls[i].setAttribute('cy', y);
   });
 }
 
-/* ================================================================ animated state */
-const anim = { hover: false, hoverT: 0, spin: 0, ledPulse: 0, blink: false, padGlow: 0 };
+/* ================================================================ animated state
+   The demo power bank has a base pose (moved by tweens) plus a floating layer (bob, wobble, spin)
+   that fades in and out with a weight, so nothing ever snaps between the two. */
+const anim = { w: 0, wTarget: 0, spin: 0, spinOn: 0, blink: false };
+const base = { pos: S.home.clone(), ry: 0, rx: 0 };
 const HOVER_DESK = new THREE.Vector3(-42, 116, 42), HOVER_MOB = new THREE.Vector3(-6, 120, 52);
 let HOVER_POS = HOVER_DESK;
 const SIDE_POS = new THREE.Vector3(-64, 122, 26);
+const TRIP_MIN = 74;
+const fmtMin = (m) => (m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min` : `${m} min`);
 
 async function stepTap() {
   const my = epoch;
@@ -465,82 +592,96 @@ async function stepTap() {
   setScreen('unlocked');
   await wait(450); if (!alive(my)) return;
   // card leaves
-  tween(900, (k) => { card.position.lerpVectors(to, new THREE.Vector3(-30, 96, 80), k); card.rotation.y = lerp(0, 0.8, k); }, ease.inOut).then((ok) => { if (ok) card.visible = false; });
-  anim.blink = true; S.led.material.color.set(0xff4d1a);
+  const c0 = card.position.clone();
+  tween(900, (k) => { card.position.lerpVectors(c0, new THREE.Vector3(-30, 96, 80), k); card.rotation.y = lerp(0, 0.8, k); }, ease.inOut).then((ok) => { if (ok) card.visible = false; });
+  anim.blink = true;
   await moveCamera('dock', 1300);
   if (!alive(my)) return;
   sfx.release();
-  await tween(900, (k) => { hero.position.z = lerp(S.home.z, S.home.z + 5.5, k); }, ease.back);
+  await tween(900, (k) => { base.pos.z = lerp(S.home.z, S.home.z + 5.5, k); }, ease.back);
 }
 
 async function stepTake() {
   const my = epoch;
   HOVER_POS = isMobile() ? HOVER_MOB : HOVER_DESK;
   anim.blink = false; S.led.material.color.set(0x3a3b3e);
-  moveCamera('hover', 1900);
-  const p0 = hero.position.clone();
+  moveCamera('hover', 2000);
+  const p0 = base.pos.clone();
   const mid = new THREE.Vector3(S.home.x, S.home.y + 2, 24);
-  await tween(700, (k) => { hero.position.lerpVectors(p0, mid, k); }, ease.inOut);
-  if (!alive(my)) return;
-  const q = hero.position.clone();
-  await tween(1300, (k) => {
-    hero.position.lerpVectors(q, HOVER_POS, k);
-    hero.scale.setScalar(lerp(1, 3.1, k));
-    hero.rotation.y = lerp(0, -0.6, k); hero.rotation.x = lerp(0, 0.18, k);
+  // one continuous curve: straight out of the slot, then up and over to the hover point
+  const curve = new THREE.CubicBezierCurve3(p0, mid, new THREE.Vector3(lerp(mid.x, HOVER_POS.x, 0.35), HOVER_POS.y - 4, HOVER_POS.z + 6), HOVER_POS.clone());
+  await tween(1900, (k) => {
+    curve.getPoint(k, base.pos);
+    const g = ease.inOut(clamp((k - 0.2) / 0.8, 0, 1));
+    hero.scale.setScalar(lerp(1, 3.1, g));
+    base.ry = lerp(0, -0.6, g); base.rx = lerp(0, 0.18, g);
+    if (k > 0.72) { anim.wTarget = 1; anim.spinOn = 1; }
   }, ease.inOut);
   if (!alive(my)) return;
-  anim.hover = true; anim.spin = hero.rotation.y;
   setScreen('trip');
-  calloutsOn = true; ui.callouts.classList.add('show');
+  measureCallouts(); calloutsOn = true; ui.callouts.classList.add('show');
 }
 
 async function stepTravel() {
   const my = epoch;
   calloutsOn = false; ui.callouts.classList.remove('show');
-  anim.hover = false;
   moveCamera('travel', 2000);
-  const p0 = hero.position.clone(), s0 = hero.scale.x;
-  await tween(1500, (k) => { hero.position.lerpVectors(p0, SIDE_POS, k); hero.scale.setScalar(lerp(s0, 1.9, k)); }, ease.inOut);
+  const p0 = base.pos.clone(), s0 = hero.scale.x;
+  // the power bank keeps floating and spinning while it glides aside
+  await tween(1700, (k) => { base.pos.lerpVectors(p0, SIDE_POS, k); hero.scale.setScalar(lerp(s0, 1.9, k)); }, ease.inOut);
   if (!alive(my)) return;
-  anim.hover = true;
   ui.trip.classList.add('show'); ui.trip.setAttribute('aria-hidden', 'false');
   setScreen('idle');
-  let flipped = false;
-  await tween(4200, (k, raw) => {
-    ui.trackFill.style.width = `${raw * 100}%`; ui.train.style.left = `${raw * 100}%`;
-    const pct = Math.round(lerp(12, 76, raw)); ui.phonePct.textContent = `${pct}%`; ui.phoneLevel.style.height = `${pct}%`;
-    ui.phoneLevel.classList.toggle('full', pct > 50);
-    ui.tripTime.textContent = `${Math.round(lerp(0, 52, raw))} min`;
+  const trackW = ui.trackFill.parentElement.clientWidth;
+  let flipped = false, whooshed = false, lastPct = -1, lastMin = -1;
+  await tween(6200, (k, raw) => {
+    ui.trackFill.style.transform = `scaleX(${raw.toFixed(4)})`;
+    ui.train.style.transform = `translate3d(${(raw * trackW).toFixed(1)}px, -50%, 0) translateX(-50%)`;
+    const pct = Math.round(lerp(12, 84, raw));
+    if (pct !== lastPct) {
+      lastPct = pct; ui.phonePct.textContent = `${pct}%`;
+      ui.phoneLevel.style.transform = `scaleY(${pct / 100})`; ui.phoneLevel.classList.toggle('full', pct > 50);
+    }
+    const m = Math.round(lerp(0, TRIP_MIN, raw)); if (m !== lastMin) { lastMin = m; ui.tripTime.textContent = fmtMin(m); }
     hero.userData.leds.forEach((d, i) => { d.material = raw > (i + 1) / 5 ? ledOn : ledOff; });
-    if (!flipped && raw > 0.55) { flipped = true; flipPlate(); }
+    // Hamm -> Düsseldorf swipe in the middle of the ride
+    const sw = clamp((raw - 0.3) / 0.36, 0, 1);
+    if (!whooshed && sw > 0) { whooshed = true; sfx.whoosh(); }
+    setSwap(ease.inOut(sw));
+    if (!flipped && sw > 0.5) { flipped = true; flipPlate(); }
   }, (t) => t);
 }
 async function flipPlate() {
   await tween(320, (k) => { plate.rotation.x = k * Math.PI / 2; }, ease.inOut);
-  setStation('DÜSSELDORF HBF'); setScreen('arrive');
+  setStation(DUS); setScreen('arrive');
   await tween(380, (k) => { plate.rotation.x = Math.PI / 2 * (1 - k); }, ease.out);
 }
 
 async function stepReturn() {
   const my = epoch;
   ui.trip.classList.remove('show'); ui.trip.setAttribute('aria-hidden', 'true');
-  anim.hover = false;
   moveCamera('dock', 1800);
-  const p0 = hero.position.clone(), s0 = hero.scale.x, ry = hero.rotation.y % (Math.PI * 2), rx = hero.rotation.x;
+  // hand the spin over to a tween that keeps turning forward and settles exactly face-front
+  const total0 = base.ry + anim.spin; anim.spin = 0; anim.spinOn = 0; anim.wTarget = 0;
+  const TWO_PI = Math.PI * 2, T = 1.6, v = 0.9;
+  const target = TWO_PI * Math.ceil((total0 + v * T / 3) / TWO_PI), d = target - total0, m0 = v * T / d;
+  const p0 = base.pos.clone(), s0 = hero.scale.x, rx0 = base.rx;
   const front = new THREE.Vector3(S.home.x, S.home.y, 22);
-  await tween(1500, (k) => {
-    hero.position.lerpVectors(p0, front, k); hero.scale.setScalar(lerp(s0, 1, k));
-    hero.rotation.y = lerp(ry, 0, k); hero.rotation.x = lerp(rx, 0, k);
+  await tween(T * 1000, (k, raw) => {
+    base.pos.lerpVectors(p0, front, k); hero.scale.setScalar(lerp(s0, 1, k)); base.rx = lerp(rx0, 0, k);
+    const h10 = raw * raw * raw - 2 * raw * raw + raw, h01 = -2 * raw * raw * raw + 3 * raw * raw;
+    base.ry = total0 + d * (h10 * m0 + h01);
   }, ease.inOut);
   if (!alive(my)) return;
-  await tween(900, (k) => { hero.position.z = lerp(22, S.home.z, k); }, ease.out);
+  base.ry = 0;
+  await tween(900, (k) => { base.pos.z = lerp(22, S.home.z, k); }, ease.out);
   if (!alive(my)) return;
   sfx.click();
   S.led.material.color.set(0x2f9e68);
   // green wave across every slot light
   slots.forEach((s, i) => { if (i === EMPTY) return; setTimeout(() => { if (!alive(my)) return; s.led.scale.setScalar(1.9); tween(500, (k) => s.led.scale.setScalar(1.9 - k * 0.9), ease.out); }, (i % 4) * 60 + Math.floor(i / 4) * 60); });
   setScreen('returned'); sfx.done();
-  toast('Rental ended · 52 min · receipt sent to your card');
+  toast(`Rental ended · ${fmtMin(TRIP_MIN)} · receipt sent to your card`);
   await wait(900); if (!alive(my)) return;
   await moveCamera('overview', 2200);
   controls.autoRotate = true;
@@ -556,16 +697,22 @@ async function next() {
 }
 async function resetDemo(animate) {
   epoch += 1; active.clear();
-  busy = false; step = 0; calloutsOn = false; anim.hover = false; anim.blink = false;
+  camMoves = 0; controls.enabled = true;
+  busy = false; step = 0; calloutsOn = false; anim.blink = false;
+  anim.w = anim.wTarget = 0; anim.spin = 0; anim.spinOn = 0;
   ui.callouts.classList.remove('show'); ui.trip.classList.remove('show'); ui.toast.classList.remove('show');
-  ui.trackFill.style.width = '0%'; ui.train.style.left = '0%'; ui.phonePct.textContent = '12%'; ui.phoneLevel.style.height = '12%'; ui.phoneLevel.classList.remove('full'); ui.tripTime.textContent = '0 min';
+  ui.trackFill.style.transform = 'scaleX(0)'; ui.train.style.transform = ''; ui.phonePct.textContent = '12%'; ui.phoneLevel.style.transform = 'scaleY(0.12)'; ui.phoneLevel.classList.remove('full'); ui.tripTime.textContent = '0 min';
   ui.hero.classList.remove('dim');
   card.visible = false; ripples.forEach((r) => (r.material.opacity = 0)); padMat.emissiveIntensity = 0.35;
-  hero.position.copy(S.home); hero.scale.setScalar(1); hero.rotation.set(0, 0, 0); hero.userData.leds.forEach((d) => (d.material = ledOn));
+  base.pos.copy(S.home); base.ry = 0; base.rx = 0; hero.scale.setScalar(1); hero.userData.leds.forEach((d) => (d.material = ledOn));
   S.led.material.color.set(0x2f9e68); slots.forEach((s) => s.led.scale.setScalar(1));
-  plate.rotation.x = 0; setStation('HAMM HBF'); setScreen('idle');
+  plate.rotation.x = 0; setStation(HAMM); setScreen('idle');
   renderUI();
-  if (animate) { await moveCamera('overview', 1600); controls.autoRotate = true; }
+  if (animate) {
+    // swipe back to Hamm if the ride got that far
+    const s0 = swapS; if (s0 > 0) tween(1400, (k) => setSwap(lerp(s0, 0, k)), ease.inOut).then(() => setSwap(0));
+    await moveCamera('overview', 1600); controls.autoRotate = true;
+  } else setSwap(0);
 }
 ui.next.addEventListener('click', next);
 ui.reset.addEventListener('click', () => resetDemo(true));
@@ -582,25 +729,41 @@ controls.addEventListener('end', () => { clearTimeout(idleTimer); idleTimer = se
 function resize() {
   renderer.setSize(innerWidth, innerHeight, false);
   applyViewOffset();
+  measureCallouts();
 }
 addEventListener('resize', resize);
 
-const clock = new THREE.Clock();
+// adaptive resolution: if a device can't hold ~45 fps, render fewer pixels instead of stuttering
+const perf = { on: false, acc: 0, n: 0 };
+function watchPerf(dt) {
+  if (!perf.on || document.hidden) return;
+  perf.acc += dt; perf.n += 1;
+  if (perf.n < 90) return;
+  const avg = perf.acc / perf.n; perf.acc = 0; perf.n = 0;
+  if (avg > 0.022 && DPR > 1) { DPR = Math.max(1, DPR - 0.25); renderer.setPixelRatio(DPR); renderer.setSize(innerWidth, innerHeight, false); }
+}
+
+let last = 0, tAcc = 0;
 function frame(now) {
-  const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+  // time from requestAnimationFrame's own timestamp: steadier than reading the clock mid-frame
+  const dt = last ? Math.min((now - last) / 1000, 0.05) : 1 / 60; last = now; tAcc += dt; const t = tAcc;
   active.forEach((j) => j.tick(now));
-  if (anim.hover) {
-    anim.spin += dt * 0.9;
-    hero.rotation.y = anim.spin;
-    hero.rotation.x = 0.18 + Math.sin(t * 1.3) * 0.05;
-    const base = hero.position.x < -50 ? SIDE_POS : HOVER_POS;
-    hero.position.y = base.y + Math.sin(t * 1.6) * 1.4;
-  }
+  // floating layer of the power bank
+  anim.w += (anim.wTarget - anim.w) * (1 - Math.exp(-dt * 2.6));
+  anim.spin += dt * 0.9 * anim.spinOn * Math.min(1, anim.w * 1.6);
+  hero.position.set(base.pos.x, base.pos.y + Math.sin(t * 1.6) * 1.4 * anim.w, base.pos.z);
+  hero.rotation.set(base.rx + Math.sin(t * 1.3) * 0.05 * anim.w, base.ry + anim.spin, 0);
   if (anim.blink) S.led.material.color.set(Math.sin(t * 12) > 0 ? 0xff4d1a : 0x3a1a10);
   glowLine.material.emissiveIntensity = 0.75 + Math.sin(t * 1.4) * 0.15;
-  controls.update();
+  if (boardStreak.alpha > 0.001) boardStreak.tex.offset.x -= dt * 1.15;
+  if (!camMoves) controls.update();
+  placeBoards();
+  renderer.clear();
+  renderer.render(bgScene, camera);
+  renderer.clearDepth();
   renderer.render(scene, camera);
   updateCallouts();
+  watchPerf(dt);
   requestAnimationFrame(frame);
 }
 
@@ -614,14 +777,24 @@ async function boot() {
       document.fonts.load(`600 20px "Inter Tight"`), document.fonts.load(`500 20px "JetBrains Mono"`),
     ]);
   } catch (e) { /* fall back to system fonts */ }
+  PREWARM.forEach(([st, nm]) => screenTexFor(st, nm)); plateTexFor(DUS);
   textures.forEach(paint);
+  bar.style.width = '60%';
+  await new Promise((r) => setTimeout(r, 0));
+  drawBoards();
+  // upload every texture now, so the first swap during the demo doesn't stall a frame
+  if (renderer.initTexture) [...textures, ...boards.map((b) => b.tex)].forEach((tx) => renderer.initTexture(tx));
   bar.style.width = '80%';
   resize();
   const far = shotVectors('far'); camera.position.copy(far.p); controls.target.copy(far.t);
   station.position.y = -10;
   headerMat.color.set(0x000000);
   slots.forEach((s) => (s.led.visible = false));
+  boards.forEach((b) => (b.mesh.visible = true));
+  renderer.compile(bgScene, camera);
   renderer.compile(scene, camera);
+  boards.forEach((b) => (b.mesh.visible = false));
+  measureCallouts();
   requestAnimationFrame(frame);
   bar.style.width = '100%';
   await new Promise((r) => setTimeout(r, 350));
@@ -635,8 +808,11 @@ async function boot() {
   await wait(500);
   document.body.classList.remove('intro');
   renderUI();
+  // the pencil sketch of Hamm Hbf fades in behind the station
+  tween(1800, (k) => { backdrop.alpha = k * 0.62; }, ease.inOut);
   await wait(1400);
   if (step === 0) controls.autoRotate = true;
+  perf.on = true;
 }
 document.body.classList.add('intro');
 boot();
