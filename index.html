@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>AmpWay Prototype</title>
+  <meta name="description" content="AmpWay: power bank stations at the train station. Tap your card, take a power bank, charge on the train, return it at any station. Interactive prototype v1.">
+  <meta name="theme-color" content="#EFEAE0">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="AmpWay · Never arrive on 1%">
+  <meta property="og:description" content="Power bank stations at the train station. Try the interactive prototype.">
+  <meta property="og:image" content="https://maazbinnasir.github.io/ampway/assets/og.png">
+  <meta property="og:url" content="https://maazbinnasir.github.io/ampway/">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="preload" href="assets/fonts/schibsted-800.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/intertight-500.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="assets/style.css">
+  <script type="importmap">
+  { "imports": { "three": "./vendor/three.module.min.js", "three/addons/": "./vendor/addons/" } }
+  </script>
+</head>
+<body>
+  <canvas id="scene" aria-label="Interactive 3D model of an AmpWay power bank station. Drag to rotate, pinch or scroll to zoom."></canvas>
+
+  <div class="loader" id="loader" aria-hidden="true">
+    <img src="assets/brand/ampway-mark.svg" alt="" width="64" height="64">
+    <div class="loader-bar"><span id="loaderBar"></span></div>
+  </div>
+
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="AmpWay home">
+      <img src="assets/brand/ampway-logo.svg" alt="AmpWay" width="196" height="42">
+    </a>
+    <div class="topbar-right">
+      <span class="pill"><span class="pulse" aria-hidden="true"></span>Prototype v1</span>
+      <button class="icon-btn" id="soundBtn" type="button" aria-pressed="true" aria-label="Sound on">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path class="spk" d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z"/><path class="wave" d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a7.8 7.8 0 0 1 0 11"/><path class="mute" d="M16 9.5l5 5m0-5l-5 5"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <section class="hero" id="hero">
+    <p class="eyebrow">Power bank stations at the train station</p>
+    <h1>Never arrive<br>on 1%.</h1>
+    <p class="lede">Tap your card. Take a power bank. Charge on the train. Return it at any AmpWay station.</p>
+  </section>
+
+  <div class="callouts" id="callouts" aria-hidden="true">
+    <svg class="callout-lines" id="calloutLines"></svg>
+    <div class="callout" data-i="0"><b>Sodium-ion cells</b><span>No lithium · built for thousands of rentals</span></div>
+    <div class="callout" data-i="1"><b>Cables built in</b><span>USB-C + Lightning</span></div>
+    <div class="callout" data-i="2"><b>Charge level</b><span>Shown on the power bank</span></div>
+  </div>
+
+  <aside class="trip" id="trip" aria-hidden="true">
+    <div class="trip-head"><span class="mono">RE 1 · ON THE TRAIN</span><span class="mono" id="tripTime">0 min</span></div>
+    <div class="route">
+      <span class="stop">Hamm</span>
+      <div class="track"><div class="track-fill" id="trackFill"></div><div class="train" id="train"></div></div>
+      <span class="stop">Düsseldorf</span>
+    </div>
+    <div class="phone">
+      <div class="phone-icon" aria-hidden="true"><div class="phone-level" id="phoneLevel"></div></div>
+      <div><span class="mono muted">YOUR PHONE</span><strong id="phonePct">12%</strong></div>
+    </div>
+  </aside>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <nav class="dock" aria-label="Prototype demo">
+    <ol class="steps" id="steps">
+      <li data-step="1"><span class="n">01</span><span class="t">Tap card</span></li>
+      <li data-step="2"><span class="n">02</span><span class="t">Take it</span></li>
+      <li data-step="3"><span class="n">03</span><span class="t">Travel</span></li>
+      <li data-step="4"><span class="n">04</span><span class="t">Return</span></li>
+    </ol>
+    <p class="caption" id="caption" aria-live="polite">Hamm Hbf. Your phone is at 12%. Tap your bank card on the orange pad.</p>
+    <div class="dock-actions">
+      <button class="btn-primary" id="nextBtn" type="button"><span id="nextLabel">Tap your card</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13m-5-6 6 6-6 6"/></svg></button>
+      <button class="btn-ghost" id="resetBtn" type="button" aria-label="Restart the demo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4.5h4.5"/></svg></button>
+    </div>
+  </nav>
+
+  <footer class="fineprint">Prototype v1 · Concept design · Entrepreneurship &amp; Innovation, FH Südwestfalen</footer>
+
+  <noscript><p class="noscript">This prototype needs JavaScript to show the 3D station.</p></noscript>
+  <script type="module" src="assets/app.js"></script>
+</body>
+</html>
